@@ -78,7 +78,8 @@ Nothing is sent anywhere: no telemetry, and the results stay on your machine.
 
 Lifeboat Cache (0.1.13+) runs with vLLM and SGLang on NVIDIA GPUs (measured), on AMD and Intel
 GPUs (supported by the engines, not measured yet), with vLLM's CPU backend (Apple silicon and CPU
-servers) and with SGLang's MLX backend on Apple silicon (full-attention models).
+servers) and with SGLang's MLX backend on Apple silicon (full-attention models, and hybrid models from
+0.1.17).
 
 ### On a Mac
 
@@ -120,7 +121,8 @@ downloaded already, or downloadable by your engine).
 - **A server inside a container** can't be stopped and restarted safely from outside. Run the line
   inside that container, or stop the container and use `--model` / `--engine-python` here.
 - **A server run by systemd:** the tool prints the `systemctl` commands to stop it and start it again.
-- **Hybrid (Mamba / linear-attention) models on SGLang:** restores after a restart are unreliable
-  at the moment; on vLLM they work.
+- **Hybrid (Mamba / linear-attention) models on SGLang's MLX backend:** one request at a time; concurrent
+  hybrid requests crash inside SGLang's MLX runtime, so the multi-user tests there will fail. On NVIDIA GPUs,
+  hybrid restores after a restart work from 0.1.16.
 
 Questions or results to share: open an issue in this repository.
