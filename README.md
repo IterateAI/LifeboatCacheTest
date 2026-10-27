@@ -87,12 +87,12 @@ memory holds the model, the engine's KV pool and its working buffers together, s
 small there: prompts up to 16K tokens, 2 to 3 returning users, no overflow test, and SGLang's test
 servers start with `--mem-fraction-static 0.3` unless your flags set it (larger settings ran a
 64 GB M4 Max out of Metal memory with several long users). Measured with this line on an M4 Max,
-Qwen3-0.6B, lifeboatcache 0.1.14:
+Qwen3-0.6B (vLLM with lifeboatcache 0.1.14, SGLang with 0.1.15):
 
 | Engine | Returning users | Without offload | With Lifeboat Cache | After a restart |
 |---|---|---|---|---|
 | vLLM 0.32 (CPU) | 3 x 8K | 49.8 s | 1.11 s (99% cached, 45x) | 0.55 s |
-| SGLang 0.5.22 (MLX) | 2 x 16K | 8.9 s | 1.53 s (100% cached, 5.8x) | 1.03 s |
+| SGLang 0.5.22 (MLX) | 2 x 16K | 7.9 s | 1.48 s (100% cached, 5.4x) | 0.88 s |
 
 ## Options
 
