@@ -36,7 +36,7 @@ import sys
 import tarfile
 import time
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 K = 1024
 PORT = 18555
 DASH_PORT = 18556
@@ -915,8 +915,9 @@ def pip(py, args, quiet_fail=False):
     uv = shutil.which("uv") or shutil.which(os.path.expanduser("~/.local/bin/uv"))
     if not has_pip and not uv:  # e.g. a venv made without pip: bootstrap it
         has_pip = subprocess.run([py, "-m", "ensurepip", "--upgrade"], capture_output=True).returncode == 0
-    base = ([py, "-m", "pip", "install", "-q", "--disable-pip-version-check"] if has_pip
-            else [uv, "pip", "install", "-q", "--python", py])
+    # fresh index data, so a release from minutes ago is seen (both cache the package index)
+    base = ([py, "-m", "pip", "install", "-q", "--disable-pip-version-check", "--no-cache-dir"] if has_pip
+            else [uv, "pip", "install", "-q", "--python", py, "--refresh-package", "lifeboatcache"])
     for extra in ([], ["--break-system-packages"]):
         r = subprocess.run(base + extra + args, capture_output=True, text=True)
         if r.returncode == 0:
