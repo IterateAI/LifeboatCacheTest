@@ -36,7 +36,7 @@ import sys
 import tarfile
 import time
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 K = 1024
 PORT = 18555
 DASH_PORT = 18556
@@ -690,6 +690,9 @@ def returning(ctx, server, n, size, tag, reset=True):
     settle(server)
     if reset:
         reset_gpu_cache(ctx.kind)
+        # a flush can leave work for the next request (SGLang's MLX runtime re-zeroes its whole KV
+        # pool lazily): absorb it here so it isn't counted against the returning users
+        complete("Hello", 1)
     drop_page_cache(server.home)
     log("  ... returning with a new question")
     back = summarize(burst([ctx.P.make(t, size, 1) for t in tags]))
@@ -739,8 +742,14 @@ def pctfmt(v):
 
 
 def lifeboat_stats(ctx):
-    s = http_get("/api/stats", DASH_PORT, {"Authorization": "Bearer " + ctx.dash_token})
-    return (s or {}).get("counts")
+    s = http_get("/api/stats", DASH_PORT, {"Authorization": "Bearer " + ctx.dash_token}) or {}
+    if not s:
+        return None
+    out = dict(s.get("counts") or {})
+    for k in ("sglang_mlx",):  # engine-specific timings, when the store reports them
+        if isinstance(s.get(k), dict):
+            out.update({f"{k}.{kk}": v for kk, v in s[k].items()})
+    return out
 
 
 # ---------------------------------------------------------------- driver
@@ -921,17 +930,31 @@ def pip(py, args, quiet_fail=False):
 
 def stop_original(o):
     log(f"stopping your server (pid {o['pid']})")
-    try:
-        os.killpg(os.getpgid(o["pid"]), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
+
+    def signal_server(sig):
+        # its process group takes the engine's workers along, unless that group is ours (a
+        # server started from the same script) and the signal would stop this tool too
         try:
-            os.kill(o["pid"], signal.SIGTERM)
+            pg = os.getpgid(o["pid"])
+            if pg != os.getpgid(0):
+                os.killpg(pg, sig)
+                return
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            os.kill(o["pid"], sig)
         except ProcessLookupError:
             pass
-    for _ in range(90):
-        if not os.path.exists(f"/proc/{o['pid']}"):
-            break
+
+    signal_server(signal.SIGTERM)
+    deadline = time.time() + 90
+    while alive(o["pid"]) and time.time() < deadline:
         time.sleep(1)
+    if alive(o["pid"]):
+        log("  it didn't exit within 90 s; stopping it with SIGKILL")
+        signal_server(signal.SIGKILL)
+        time.sleep(3)
+    time.sleep(5)  # the engine's worker processes release their memory just after the parent exits
     wait_gpu_free()
 
 
