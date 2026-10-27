@@ -36,7 +36,7 @@ import sys
 import tarfile
 import time
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 K = 1024
 PORT = 18555
 DASH_PORT = 18556
@@ -59,8 +59,133 @@ def sh(cmd):
         return ""
 
 
+MAC = sys.platform == "darwin"
+
+
+# ---------------------------------------------------------------- processes (Linux /proc, macOS sysctl)
+def _mac_procargs(pid):
+    """(argv, env) of a macOS process from KERN_PROCARGS2, as exact as /proc on Linux."""
+    import ctypes
+    import struct
+
+    libc = ctypes.CDLL(None)
+    mib = (ctypes.c_int * 3)(1, 49, pid)  # CTL_KERN, KERN_PROCARGS2
+    size = ctypes.c_size_t(0)
+    if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0 or not size.value:
+        return None
+    buf = ctypes.create_string_buffer(size.value)
+    if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+        return None
+    data = buf.raw[:size.value]
+    argc = struct.unpack("i", data[:4])[0]
+    i = data.index(b"\0", 4)  # past the exec path and its NUL padding
+    while i < len(data) and data[i] == 0:
+        i += 1
+    parts = data[i:].split(b"\0")
+    argv = [x.decode(errors="replace") for x in parts[:argc]]
+    env = {}
+    for x in parts[argc:]:
+        if not x:
+            break
+        k, _, v = x.decode(errors="replace").partition("=")
+        env[k] = v
+    return argv, env
+
+
+def processes():
+    """[(pid, ppid, argv)] for every process this user can see."""
+    out = []
+    if MAC:
+        for line in sh(["ps", "-axo", "pid=,ppid="]).splitlines():
+            pid, ppid = (int(x) for x in line.split())
+            pa = _mac_procargs(pid)
+            if pa:
+                out.append((pid, ppid, untitled(pa[0])))
+        return out
+    for d in glob.glob("/proc/[0-9]*"):
+        pid = int(d.rsplit("/", 1)[1])
+        try:
+            argv = open(f"{d}/cmdline", "rb").read().decode(errors="replace").split("\0")[:-1]
+            ppid = int(open(f"{d}/stat").read().rsplit(")", 1)[1].split()[1])
+        except OSError:
+            continue
+        out.append((pid, ppid, untitled(argv)))
+    return out
+
+
+def untitled(argv):
+    """A process that renamed itself (setproctitle, as SGLang does) shows one joined string
+    where its argv was: split it back."""
+    if argv and " " in argv[0] and not any(argv[1:]):
+        try:
+            return shlex.split(argv[0])
+        except ValueError:
+            return argv[0].split()
+    return argv
+
+
+def proc_env(pid):
+    """The process environment, or None when it can't be read (or was overwritten by a
+    process title)."""
+    if MAC:
+        pa = _mac_procargs(pid)
+        env = pa[1] if pa else None
+    else:
+        try:
+            raw = open(f"/proc/{pid}/environ", "rb").read().decode(errors="replace").split("\0")
+            env = dict(x.split("=", 1) for x in raw if "=" in x)
+        except OSError:
+            env = None
+    return env if env and "PATH" in env else None
+
+
+def loaded_env_roots(pid):
+    """Python environments a running process has native libraries open from (torch and the
+    like stay mapped; pure-Python modules don't), most frequent first."""
+    try:
+        text = (sh(["lsof", "-p", str(pid), "-Fn"]) if MAC else open(f"/proc/{pid}/maps").read())
+    except OSError:
+        return []
+    roots = re.findall(r"(/\S+?)/lib/python3\.\d+/site-packages/", text)
+    return sorted(set(roots), key=roots.count, reverse=True)
+
+
+def proc_cwd(pid):
+    if MAC:
+        line = next((x for x in sh(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"]).splitlines()
+                     if x.startswith("n")), "")
+        return line[1:] or None
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return None
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
 # ---------------------------------------------------------------- this machine
 def system_info(workdir):
+    if MAC:
+        mem = int(sh(["sysctl", "-n", "hw.memsize"]) or 0)
+        chip = sh(["sysctl", "-n", "machdep.cpu.brand_string"]) or "Apple silicon"
+        cores = sh(["sysctl", "-n", "hw.perflevel0.physicalcpu"]) or "?"
+        vm = sh(["vm_stat"])
+        free = sum(int(m.group(1)) for m in re.finditer(r"Pages (?:free|inactive|purgeable):\s+(\d+)", vm))
+        avail = free * os.sysconf("SC_PAGE_SIZE") if free else mem // 2
+        disk = shutil.disk_usage(workdir)
+        return {"gpus": [{"index": 0, "name": f"{chip} (unified memory, Metal)", "mem_mib": mem // 2**20,
+                          "used_mib": 0, "driver": "Metal"}], "apple": True,
+                "cuda_driver": "-", "cpu": f"{chip}, {cores} performance cores", "cores": os.cpu_count(),
+                "ram_gb": mem / 2**30, "ram_avail_gb": avail / 2**30, "shm_gb": 0, "shm_free_gb": 0,
+                "disk_free_gb": disk.free / 2**30, "fs": "apfs"}
     gpus = []
     for line in sh(["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used,driver_version",
                     "--format=csv,noheader,nounits"]).splitlines():
@@ -75,35 +200,22 @@ def system_info(workdir):
     disk = shutil.disk_usage(workdir)
     fs = sh(["df", "-T", workdir]).splitlines()[-1].split()[1] if sh(["df", "-T", workdir]) else "?"
     cpu = next((line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name")), "?")
-    return {"gpus": gpus, "cuda_driver": cuda.group(1) if cuda else "?", "cpu": cpu, "cores": os.cpu_count(),
+    return {"gpus": gpus, "apple": False, "cuda_driver": cuda.group(1) if cuda else "?", "cpu": cpu, "cores": os.cpu_count(),
             "ram_gb": mem["MemTotal"] / 2**30, "ram_avail_gb": mem["MemAvailable"] / 2**30,
             "shm_gb": shm.total / 2**30 if shm else 0, "shm_free_gb": shm.free / 2**30 if shm else 0,
             "disk_free_gb": disk.free / 2**30, "fs": fs}
 
 
 # ---------------------------------------------------------------- the engine you run
-def proc_args(pid):
-    try:
-        return open(f"/proc/{pid}/cmdline", "rb").read().decode(errors="replace").split("\0")[:-1]
-    except OSError:
-        return []
-
-
 def find_servers():
     """vLLM / SGLang API servers running on this machine (parent processes only)."""
     found = []
-    for d in glob.glob("/proc/[0-9]*"):
-        pid = int(d.rsplit("/", 1)[1])
-        a = proc_args(pid)
+    for pid, ppid, a in processes():
         s = " ".join(a)
         if " serve " not in f" {s} " and "api_server" not in s and "sglang.launch_server" not in s:
             continue
         kind = "sglang" if "sglang" in s else "vllm" if "vllm" in s else None
-        if kind is None or pid == os.getpid():
-            continue
-        try:
-            ppid = int(open(f"{d}/stat").read().rsplit(")", 1)[1].split()[1])
-        except OSError:
+        if kind is None or pid == os.getpid() or "lbc_verify" in s:
             continue
         found.append({"pid": pid, "ppid": ppid, "kind": kind, "argv": a})
     pids = {f["pid"] for f in found}
@@ -193,13 +305,12 @@ def engine_python_of(target):
     """The interpreter that runs the server, as launched (a venv's python, not the resolved
     base interpreter, which wouldn't see the venv's packages)."""
     a0 = target["argv"][0]
-    try:
-        cwd = os.readlink(f"/proc/{target['pid']}/cwd")
-    except OSError:
-        cwd = "/"
+    cwd = proc_cwd(target["pid"]) or "/"
     path = a0 if os.path.isabs(a0) else shutil.which(a0) or os.path.join(cwd, a0)
-    cands = []
-    if os.path.basename(path).startswith("python"):
+    env = proc_env(target["pid"]) or {}
+    cands = [env.get("__PYVENV_LAUNCHER__"),
+             os.path.join(env["VIRTUAL_ENV"], "bin", "python") if env.get("VIRTUAL_ENV") else None]
+    if os.path.basename(path).lower().startswith("python"):
         cands.append(path)
     else:
         try:
@@ -209,7 +320,9 @@ def engine_python_of(target):
                 cands.append(shutil.which(parts[1]) if os.path.basename(parts[0]) == "env" and len(parts) > 1 else parts[0])
         except OSError:
             pass
-    cands.append(os.path.realpath(f"/proc/{target['pid']}/exe"))
+    if not MAC:
+        cands.append(os.path.realpath(f"/proc/{target['pid']}/exe"))
+    cands += [os.path.join(root, "bin", "python") for root in loaded_env_roots(target["pid"])]
     for c in cands:
         if c and os.path.exists(c) and has_module(c, target["kind"]):
             return c
@@ -217,6 +330,8 @@ def engine_python_of(target):
 
 
 def in_other_namespace(pid):
+    if MAC:
+        return False
     try:
         return os.readlink(f"/proc/{pid}/ns/mnt") != os.readlink("/proc/self/ns/mnt")
     except OSError:
@@ -224,6 +339,8 @@ def in_other_namespace(pid):
 
 
 def systemd_unit(pid):
+    if MAC:
+        return None
     try:
         for line in open(f"/proc/{pid}/cgroup"):
             m = re.search(r"/([^/]+\.service)$", line.strip())
@@ -261,6 +378,10 @@ class Server:
         args = list(c.base_args)
         if c.kind == "vllm":
             env["VLLM_SERVER_DEV_MODE"] = "1"  # /reset_prefix_cache
+            if MAC:  # vLLM's CPU backend: KV space in GB, and FP16 (no BF16 kernels on macOS)
+                env.setdefault("VLLM_CPU_KVCACHE_SPACE", str(c.kv_space_gb))
+                if not flag(args, "--dtype"):
+                    args += ["--dtype", "float16"]
             args += ["--host", "127.0.0.1", "--port", str(PORT), "--served-model-name", "verify",
                      "--enable-prefix-caching", "--enable-prompt-tokens-details"]
             if self.config == "vllm_offload":
@@ -282,6 +403,14 @@ class Server:
         else:
             args += ["--host", "127.0.0.1", "--port", str(PORT), "--served-model-name", "verify",
                      "--enable-cache-report"]
+            if MAC:  # SGLang's Apple-silicon runtime
+                env["SGLANG_USE_MLX"] = "1"
+                if "--disable-cuda-graph" not in args:
+                    args.append("--disable-cuda-graph")
+                if not flag(args, "--mem-fraction-static"):
+                    # its KV pool otherwise takes most of unified memory and leaves too little
+                    # Metal working memory for long prompts (0.6 still ran out on 64 GB)
+                    args += ["--mem-fraction-static", "0.3"]
             if self.config == "sglang_hicache":
                 env["SGLANG_HICACHE_FILE_BACKEND_STORAGE_DIR"] = self.home + "/file"
                 args += ["--enable-hierarchical-cache", "--hicache-storage-backend", "file",
@@ -342,7 +471,8 @@ class Server:
 
     def kv_tokens(self):
         t = self.text()
-        m = re.search(r"GPU KV cache size: ([0-9,]+) tokens", t) or re.search(r"max_total_num_tokens[=: ]+(\d+)", t)
+        m = (re.search(r"(?:GPU|CPU) KV cache size: ([0-9,]+) tokens", t) or re.search(r"MlxAttentionKVPool: (\d+) slots", t)
+             or re.search(r"max_total_num_tokens[=: ]+(\d+)", t))
         return int(m.group(1).replace(",", "")) if m else None
 
     def attached(self):
@@ -352,7 +482,8 @@ class Server:
             return True
         for _ in range(30):
             t = self.text()
-            if "LIFEBOAT_CACHE=1: Lifeboat Cache via" in t or "HiCache enabled with the Lifeboat storage backend" in t \
+            if any(x in t for x in ("LIFEBOAT_CACHE=1: Lifeboat Cache via", "HiCache enabled with the Lifeboat storage backend",
+                                    "Lifeboat Cache: MLX prefix cache")) \
                     or lifeboat_stats(self.ctx) is not None:
                 return True
             time.sleep(2)
@@ -372,6 +503,8 @@ class Server:
 
 
 def wait_gpu_free(limit_s=180):
+    if MAC:  # unified memory: the stopped process's exit is the signal
+        return
     t0 = time.time()
     while time.time() - t0 < limit_s:
         used = [int(x) for x in sh(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"]).split()]
@@ -541,8 +674,9 @@ def drop_page_cache(root):
             except OSError:
                 continue
             try:
-                os.fdatasync(fd)
-                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                getattr(os, "fdatasync", os.fsync)(fd)
+                if hasattr(os, "posix_fadvise"):  # Linux; macOS can't drop one file's pages
+                    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
             except OSError:
                 pass
             finally:
@@ -614,12 +748,18 @@ class Ctx:
     pass
 
 
-def plan_sizes(ctx, kv):
-    """Test context and user counts for this GPU and model."""
-    size = 64 * K
-    while size > 4 * K and (size + 1024 > ctx.max_len or size > kv):
+def plan_sizes(ctx, kv, rate, full):
+    """Test context and user counts for this machine: the longest prompt (up to 64K) that fits
+    the KV pool and the model and takes at most 20 s (60 s with --full) to process once, and as
+    many returning users as half the pool holds and a ~60 s (240 s) first visit allows."""
+    single_s, phase_s = (60, 240) if full else (20, 60)
+    # unified memory (Apple silicon) also holds the engine's working buffers: SGLang's MLX runtime
+    # ran out of Metal memory decoding 3 x 16K users on 64 GB; vLLM's CPU backend took 3 x 8K
+    max_size, max_users = ((16 * K, 2 if ctx.kind == "sglang" else 3) if MAC else (64 * K, 16))
+    size = max_size
+    while size > 2 * K and (size + 1024 > ctx.max_len or size > kv or size / rate > single_s):
         size //= 2
-    fit = max(1, min(16, int(0.5 * kv / size)))
+    fit = max(1, min(max_users, int(0.5 * kv / size), int(phase_s * rate / size)))
     return size, fit
 
 
@@ -659,15 +799,17 @@ def run(args):
         if not ctx.py:
             ctx.py, _ = find_engine_python(ctx.kind)
         ctx.model = args.model or model
-        ctx.launcher = launcher if os.path.basename(launcher[0]).startswith("python") or launcher[-1] == "serve" \
+        if os.path.basename(launcher[0]).lower().startswith("python"):
+            launcher = [ctx.py] + launcher[1:]  # the engine's own python (a macOS venv runs as Python.app)
+        ctx.launcher = launcher if os.path.basename(launcher[0]).lower().startswith("python") or launcher[-1] == "serve" \
             else [ctx.py, "-m", "vllm.entrypoints.openai.api_server" if ctx.kind == "vllm" else "sglang.launch_server"]
         ctx.base_args = rest
-        try:
-            raw = open(f"/proc/{target['pid']}/environ", "rb").read().decode(errors="replace").split("\0")
-            ctx.orig_env = dict(x.split("=", 1) for x in raw if "=" in x)
-            ctx.orig_cwd = os.readlink(f"/proc/{target['pid']}/cwd")
-        except OSError:
-            ctx.orig_env, ctx.orig_cwd = dict(os.environ), os.getcwd()
+        ctx.orig_env = proc_env(target["pid"])
+        ctx.env_known = ctx.orig_env is not None
+        if not ctx.env_known:
+            # renamed process: rebuild from this shell's environment plus what the engine needs
+            ctx.orig_env = dict(os.environ, **({"SGLANG_USE_MLX": "1"} if MAC and ctx.kind == "sglang" else {}))
+        ctx.orig_cwd = proc_cwd(target["pid"]) or os.getcwd()
         ctx.engine_env = {k: v for k, v in ctx.orig_env.items()
                           if k.startswith(("CUDA_", "HF_", "HUGGING", "VLLM_", "SGLANG_", "TRANSFORMERS_", "NCCL_"))}
         unit = systemd_unit(target["pid"])
@@ -675,7 +817,11 @@ def run(args):
             sys.exit(f"Your server (pid {target['pid']}) is managed by {unit}. Stop it with "
                      f"'sudo systemctl stop {unit}', run this again with --model {ctx.model} "
                      f"--engine-python {ctx.py}, then 'sudo systemctl start {unit}'.")
-        original = {"argv": target["argv"], "env": ctx.orig_env, "cwd": ctx.orig_cwd, "pid": target["pid"]}
+        argv = list(target["argv"])
+        if not ctx.env_known and os.path.basename(argv[0]).lower().startswith("python"):
+            argv[0] = ctx.py  # without its environment, a macOS Python.app wouldn't find the venv
+        original = {"argv": argv, "env": ctx.orig_env, "cwd": ctx.orig_cwd, "pid": target["pid"],
+                    "env_known": ctx.env_known}
     else:
         ctx.py, ctx.kind = (args.engine_python, None) if args.engine_python else find_engine_python()
         if ctx.py and not ctx.kind:
@@ -714,9 +860,14 @@ def run(args):
 
     # --- the GPU must be ours for the run
     if original:
+        note = "" if original["env_known"] else (" (its environment can't be read, so it restarts with "
+                                                 "this shell's environment)")
+        if not original["env_known"]:
+            log("note: your server renamed its process, so its environment can't be read; it will restart "
+                "with this shell's environment" + (" plus SGLANG_USE_MLX=1" if MAC and ctx.kind == "sglang" else ""))
         if not (args.yes or ask(f"Your {ctx.kind} server (pid {original['pid']}, {ctx.model}) uses the GPU. Stop it "
                                 f"for the test (~{'90' if args.full else '35'} min) and restart it afterwards "
-                                "with the same command?")):
+                                f"with the same command{note}?")):
             sys.exit("Not stopped. Re-run with --yes, or stop the server yourself and pass --model / --engine-python.")
         stop_original(original)
     busy = [g for g in system_info(work)["gpus"] if g["used_mib"] > 2000]
@@ -742,7 +893,7 @@ def install(ctx, args):
     if pkg_version(py, "lifeboatcache") != args.lifeboat_version or not args.lifeboat_version:
         log("installing lifeboatcache into the engine environment (engine and torch pinned)")
         pip(py, ["-U", *want, "-c", cons])
-    if ctx.kind == "vllm" and not args.no_lmcache and not has_module(py, "lmcache"):
+    if ctx.kind == "vllm" and not args.no_lmcache and not MAC and not has_module(py, "lmcache"):
         log("trying LMCache 0.5.x (skipped if it would change any installed package)")
         if not pip(py, ["lmcache>=0.5.6,<0.6", "-c", cons], quiet_fail=True):
             log("  LMCache not installed: it needs a different torch / vLLM than this environment has")
@@ -751,12 +902,17 @@ def install(ctx, args):
 
 
 def pip(py, args, quiet_fail=False):
-    base = [py, "-m", "pip", "install", "-q", "--disable-pip-version-check"]
+    has_pip = subprocess.run([py, "-m", "pip", "--version"], capture_output=True).returncode == 0
+    uv = shutil.which("uv") or shutil.which(os.path.expanduser("~/.local/bin/uv"))
+    if not has_pip and not uv:  # e.g. a venv made without pip: bootstrap it
+        has_pip = subprocess.run([py, "-m", "ensurepip", "--upgrade"], capture_output=True).returncode == 0
+    base = ([py, "-m", "pip", "install", "-q", "--disable-pip-version-check"] if has_pip
+            else [uv, "pip", "install", "-q", "--python", py])
     for extra in ([], ["--break-system-packages"]):
         r = subprocess.run(base + extra + args, capture_output=True, text=True)
         if r.returncode == 0:
             return True
-        if "externally-managed" not in r.stderr:
+        if "externally-managed" not in r.stderr and "externally managed" not in r.stderr:
             break
     if not quiet_fail:
         sys.exit(f"pip install failed:\n{r.stderr[-2000:]}")
@@ -798,13 +954,21 @@ def measure(ctx, args, sysinfo, engine_ver):
     ctx.trust = "--trust-remote-code" in ctx.base_args
     ctx.max_len = int(flag(ctx.base_args, "--max-model-len", "--context-length", default=0) or 0) or model_max_len(ctx.model)
     ngpu = len(sysinfo["gpus"])
-    ctx.cpu_gb = max(2, int(min(30, 0.25 * sysinfo["ram_avail_gb"], (sysinfo["shm_free_gb"] - 4) / max(1, ngpu))))
+    if MAC:  # unified memory holds the model, the KV pool and the tiers alike
+        ctx.cpu_gb = max(2, int(min(8, 0.15 * sysinfo["ram_gb"])))
+        ctx.kv_space_gb = max(2, int(min(16, 0.2 * sysinfo["ram_gb"])))
+    else:
+        ctx.cpu_gb = max(2, int(min(30, 0.25 * sysinfo["ram_avail_gb"], (sysinfo["shm_free_gb"] - 4) / max(1, ngpu))))
     ctx.disk_gb = max(10, int(min(500, 0.5 * sysinfo["disk_free_gb"])))
     log(f"cache sizes: {ctx.cpu_gb} GB host RAM tier, {ctx.disk_gb} GB disk tier; model context {ctx.max_len // K}K")
     ctx.P = Prompts(ctx.model, ctx.trust)
-    lm = ctx.kind == "vllm" and has_module(ctx.py, "lmcache")
-    configs = (["vllm", "vllm_offload", "lifeboat"] + (["lmcache", "lmcache_lifeboat"] if lm else [])
-               if ctx.kind == "vllm" else ["sglang", "sglang_hicache", "lifeboat"])
+    lm = ctx.kind == "vllm" and has_module(ctx.py, "lmcache") and not MAC
+    if MAC:
+        # vLLM's own offload and LMCache need a GPU; SGLang's MLX runtime has no HiCache
+        configs = ["vllm", "lifeboat"] if ctx.kind == "vllm" else ["sglang", "lifeboat"]
+    else:
+        configs = (["vllm", "vllm_offload", "lifeboat"] + (["lmcache", "lmcache_lifeboat"] if lm else [])
+                   if ctx.kind == "vllm" else ["sglang", "sglang_hicache", "lifeboat"])
     if args.only:
         configs = [c for c in configs if c in args.only.split(",")]
     budget = 300 if args.full else 120
@@ -833,10 +997,15 @@ def measure(ctx, args, sysinfo, engine_ver):
             r["ready_s"], r["kv_tokens"] = srv.ready_s, srv.kv_tokens()
             if plan is None:
                 kv = r["kv_tokens"] or 100_000
-                size, fit = plan_sizes(ctx, kv)
+                probe = complete(ctx.P.make(f"probe-{random.random()}", 2 * K, 0), 1)
+                rate = (probe.get("prompt_tokens") or 2 * K) / max(probe.get("ttft_s") or 1, 1e-3)
+                size, fit = plan_sizes(ctx, kv, rate, args.full)
                 plan = res["plan"] = {"gpu_kv_tokens": kv, "context": size, "users_fit": fit,
-                                      "users_on_gpu_at_once": kv // size}
-                log(f"plan: {size // K}K-token users; {kv:,} KV tokens on the GPU = {kv // size} such users at once")
+                                      "users_on_gpu_at_once": kv // size, "prefill_tok_s_probe": round(rate)}
+                if rate < 20_000:  # CPU / Apple-silicon class: fewer concurrent users
+                    levels = [1, 2, 4, 8, 16] if args.full else [1, 2, 4, 8]
+                log(f"plan: {size // K}K-token users ({round(rate):,} prompt tokens/s); {kv:,} KV tokens = "
+                    f"{kv // size} such users at once")
             size = plan["context"]
             if config in ("vllm", "sglang", "lifeboat"):
                 log("total concurrency")
@@ -848,7 +1017,7 @@ def measure(ctx, args, sysinfo, engine_ver):
                 if "overflow_users" not in plan:
                     rate = r["returning"]["cold"].get("prefill_tok_s") or 5000
                     want = int(2 * plan["gpu_kv_tokens"] / size) + 1
-                    plan["overflow_users"] = max(0, min(want, int(budget * rate / size), 128))
+                    plan["overflow_users"] = 0 if MAC else max(0, min(want, int(budget * rate / size), 128))
                     plan["overflow_x_gpu"] = round(plan["overflow_users"] * size / plan["gpu_kv_tokens"], 2)
                 continue
             log("returning users (GPU cache reset in between)")
@@ -994,8 +1163,8 @@ def main():
     ap.add_argument("--in-engine", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("extra_args", nargs="*", help="extra engine flags after --, e.g. -- --max-model-len 65536")
     args = ap.parse_args()
-    if not sys.platform.startswith("linux"):
-        sys.exit("Linux with an NVIDIA GPU is required")
+    if not (sys.platform.startswith("linux") or MAC):
+        sys.exit("Linux (NVIDIA GPU) or macOS (Apple silicon) is required")
     sys.exit(run(args))
 
 

@@ -25,8 +25,10 @@ with Lifeboat Cache:
 
 | Engine | Configurations |
 |---|---|
-| vLLM | no offload · vLLM native offload (CPU + disk) · Lifeboat Cache · LMCache · LMCache + Lifeboat Cache |
-| SGLang | no offload (radix cache) · SGLang HiCache with its file backend · Lifeboat Cache |
+| vLLM on NVIDIA | no offload · vLLM native offload (CPU + disk) · Lifeboat Cache · LMCache · LMCache + Lifeboat Cache |
+| SGLang on NVIDIA | no offload (radix cache) · SGLang HiCache with its file backend · Lifeboat Cache |
+| vLLM on a Mac (CPU backend) | no offload · Lifeboat Cache (vLLM's own offload and LMCache need a GPU) |
+| SGLang on a Mac (MLX backend) | no offload · Lifeboat Cache (the MLX runtime has no HiCache) |
 
 | Test | What it shows |
 |---|---|
@@ -68,7 +70,7 @@ Nothing is sent anywhere: no telemetry, and the results stay on your machine.
 
 ## Requirements
 
-- Linux with NVIDIA GPUs and `nvidia-smi`; Python 3 and `curl`.
+- Linux with NVIDIA GPUs and `nvidia-smi`, or macOS on Apple silicon; Python 3 and `curl`.
 - **vLLM 0.32.x**, or **SGLang 0.5.19 or newer**, installed, with the model you want to test.
   Other vLLM versions run, but Lifeboat Cache's native mode targets 0.32; a configuration that
   doesn't attach is reported as skipped rather than counted.
@@ -76,8 +78,20 @@ Nothing is sent anywhere: no telemetry, and the results stay on your machine.
 
 Lifeboat Cache (0.1.13+) runs with vLLM and SGLang on NVIDIA GPUs (measured), on AMD and Intel
 GPUs (supported by the engines, not measured yet), with vLLM's CPU backend (Apple silicon and CPU
-servers) and with SGLang's MLX backend on Apple silicon. This verification tool currently needs an
-NVIDIA GPU.
+servers) and with SGLang's MLX backend on Apple silicon (full-attention models).
+
+### On a Mac
+
+The same line works on Apple silicon with vLLM's CPU build or SGLang's MLX runtime. Unified
+memory holds the model, the engine's KV pool and its working buffers together, so the tests stay
+small there: prompts up to 16K tokens, 2 to 3 returning users, no overflow test, and SGLang's test
+servers start with `--mem-fraction-static 0.3` unless your flags set it (larger settings ran a
+64 GB M4 Max out of Metal memory with several long users). Measured on an M4 Max, Qwen3-0.6B:
+
+| Engine | Returning user without offload | With Lifeboat Cache | After a restart |
+|---|---|---|---|
+| vLLM 0.32 (CPU), 3 users x 8K | 39.7 s | 1.18 s (99% cached) | 0.55 s |
+| SGLang 0.5.22 (MLX), 2 users x 16K | 10.2 s | 7.8 s (100% cached) | 0.83 s |
 
 ## Options
 
@@ -99,6 +113,9 @@ downloaded already, or downloadable by your engine).
 
 ## Not supported
 
+- **A server that renames its process** (SGLang does) hides its environment: it is restarted with
+  the Python it runs in, its command line and this shell's environment (plus `SGLANG_USE_MLX=1` on a
+  Mac), and the tool says so before stopping it.
 - **A server inside a container** can't be stopped and restarted safely from outside. Run the line
   inside that container, or stop the container and use `--model` / `--engine-python` here.
 - **A server run by systemd:** the tool prints the `systemctl` commands to stop it and start it again.
