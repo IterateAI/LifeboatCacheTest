@@ -74,10 +74,10 @@ Nothing is sent anywhere: no telemetry, and the results stay on your machine.
   doesn't attach is reported as skipped rather than counted.
 - Free disk for the cache tiers (the tool uses up to half the free space, at most 500 GB).
 
-Lifeboat Cache attaches where the engine has a GPU KV offload path: vLLM and SGLang on NVIDIA GPUs
-(measured), AMD and Intel GPUs (supported by the engines, not measured yet). On vLLM's CPU backend
-(Apple silicon, CPU servers) and SGLang's MLX backend (Apple silicon) it stays off and leaves the
-engine untouched, so there is nothing to verify there yet; this tool needs an NVIDIA GPU.
+Lifeboat Cache (0.1.13+) runs with vLLM and SGLang on NVIDIA GPUs (measured), on AMD and Intel
+GPUs (supported by the engines, not measured yet), with vLLM's CPU backend (Apple silicon and CPU
+servers) and with SGLang's MLX backend on Apple silicon. This verification tool currently needs an
+NVIDIA GPU.
 
 ## Options
 
