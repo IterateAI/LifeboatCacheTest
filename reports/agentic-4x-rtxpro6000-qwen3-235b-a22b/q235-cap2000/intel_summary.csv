@@ -1,0 +1,2 @@
+engine,config,dram_gb,users,rounds,max_out,context,requests,ok,errors,wall_s,ttft_mean_s,ttft_p50_s,ttft_p99_s,out_tok_s_sustained,output_tokens,prompt_tokens,prefix_hit_rate,ttft_round1_s,ttft_round10_s,round1_to_last_pct,gpu_joules,cpu_joules,tok_per_joule
+vllm,lifeboat,128,128,10,256,40960,1280,1273,7,705.3,42.737,46.98435698299727,78.28001132600184,208.36,146961,12504519,0.792,10.757,45.367,321.7,922764.5,,0.1593

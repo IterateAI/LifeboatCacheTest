@@ -1,6 +1,6 @@
-# Lifeboat Cache verification
+# LifeboatCache verification
 
-Check what [Lifeboat Cache](https://pypi.org/project/lifeboatcache/) does for **your** model on
+Check what [LifeboatCache](https://pypi.org/project/lifeboatcache/) does for **your** model on
 **your** GPUs, with the vLLM or SGLang you already run. One line:
 
 ```bash
@@ -21,14 +21,14 @@ curl -fsSL https://raw.githubusercontent.com/IterateAI/LifeboatCacheTest/main/ru
 ## What it measures
 
 Each test runs on your engine three ways — without offload, with the engine's own offload, and
-with Lifeboat Cache:
+with LifeboatCache:
 
 | Engine | Configurations |
 |---|---|
-| vLLM on NVIDIA | no offload · vLLM native offload (CPU + disk) · Lifeboat Cache · LMCache · LMCache + Lifeboat Cache |
-| SGLang on NVIDIA | no offload (radix cache) · SGLang HiCache with its file backend · Lifeboat Cache |
-| vLLM on a Mac (CPU backend) | no offload · Lifeboat Cache (vLLM's own offload and LMCache need a GPU) |
-| SGLang on a Mac (MLX backend) | no offload · Lifeboat Cache (the MLX runtime has no HiCache) |
+| vLLM on NVIDIA | no offload · vLLM native offload (CPU + disk) · LifeboatCache · LMCache · LMCache + LifeboatCache |
+| SGLang on NVIDIA | no offload (radix cache) · SGLang HiCache with its file backend · LifeboatCache |
+| vLLM on a Mac (CPU backend) | no offload · LifeboatCache (vLLM's own offload and LMCache need a GPU) |
+| SGLang on a Mac (MLX backend) | no offload · LifeboatCache (the MLX runtime has no HiCache) |
 
 | Test | What it shows |
 |---|---|
@@ -68,15 +68,30 @@ Nothing is sent anywhere: no telemetry, and the results stay on your machine.
 | `system.csv` | GPU, driver, CPU, RAM, disk, engine and package versions, the engine flags used |
 | `results.json` | Everything, including server log tails for configurations that didn't start |
 
+## Agentic benchmark and published results
+
+Besides the one-line verifier, [`agentic/`](agentic/) holds the tools for the agentic workload
+of Intel's published KV-cache offload study — real agent sessions replayed turn by turn across
+configurations, host-DRAM sizes and numbers of agents — and [`reports/`](reports/) the results
+measured with them (per-request CSVs, per-cell summaries and the slides):
+
+| Report | Hardware, model | 64 agents: vLLM alone → + LMCache → + LifeboatCache (mean TTFT / output tok/s) |
+|---|---|---|
+| [4 × RTX PRO 6000](reports/agentic-4x-rtxpro6000-qwen3-235b-a22b/) | 4 × RTX PRO 6000, Qwen3-235B-A22B-FP8, 128 GB DRAM | 26.7 s / 94 → 17.1 s / 148 → **9.1 s / 219** |
+| [1 × RTX PRO 6000](reports/agentic-1x-rtxpro6000-qwen3-30b-a3b/) | 1 × RTX PRO 6000, Qwen3-30B-A3B, 32 GB DRAM | 25.4 s / 180 → 21.8 s / 211 → **13.0 s / 323** |
+
+At 128 agents on the four-GPU server LifeboatCache delivered 3.0x the output throughput of vLLM
+alone (208 vs 70 tok/s). vLLM 0.32, LMCache 0.5.6, LifeboatCache 0.1.23.
+
 ## Requirements
 
 - Linux with NVIDIA GPUs and `nvidia-smi`, or macOS on Apple silicon; Python 3 and `curl`.
 - **vLLM 0.32.x**, or **SGLang 0.5.19 or newer**, installed, with the model you want to test.
-  Other vLLM versions run, but Lifeboat Cache's native mode targets 0.32; a configuration that
+  Other vLLM versions run, but LifeboatCache's native mode targets 0.32; a configuration that
   doesn't attach is reported as skipped rather than counted.
 - Free disk for the cache tiers (the tool uses up to half the free space, at most 500 GB).
 
-Lifeboat Cache (0.1.13+) runs with vLLM and SGLang on NVIDIA GPUs (measured), on AMD and Intel
+LifeboatCache (0.1.13+) runs with vLLM and SGLang on NVIDIA GPUs (measured), on AMD and Intel
 GPUs (supported by the engines, not measured yet), with vLLM's CPU backend (Apple silicon and CPU
 servers) and with SGLang's MLX backend on Apple silicon (full-attention models, and hybrid models from
 0.1.17).
@@ -90,7 +105,7 @@ servers start with `--mem-fraction-static 0.3` unless your flags set it (larger 
 64 GB M4 Max out of Metal memory with several long users). Measured with this line on an M4 Max,
 Qwen3-0.6B (vLLM with lifeboatcache 0.1.14, SGLang with 0.1.15):
 
-| Engine | Returning users | Without offload | With Lifeboat Cache | After a restart |
+| Engine | Returning users | Without offload | With LifeboatCache | After a restart |
 |---|---|---|---|---|
 | vLLM 0.32 (CPU) | 3 x 8K | 49.8 s | 1.11 s (99% cached, 45x) | 0.55 s |
 | SGLang 0.5.22 (MLX) | 2 x 16K | 7.9 s | 1.48 s (100% cached, 5.4x) | 0.88 s |

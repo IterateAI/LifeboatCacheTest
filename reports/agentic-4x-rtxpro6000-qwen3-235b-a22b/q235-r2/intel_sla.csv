@@ -1,0 +1,3 @@
+engine,config,dram_gb,max_users_p99_le_30s,max_users_p99_le_300s,max_users_p99_le_900s
+vllm,lifeboat,128,64,64,64
+vllm,lmcache_dram,128,0,64,64

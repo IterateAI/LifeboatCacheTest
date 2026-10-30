@@ -1,0 +1,3 @@
+engine,config,dram_gb,users,ttft_mean_s,ttft_p99_s,out_tok_s_sustained,prefix_hit_rate,wall_s,tok_per_joule
+vllm,lifeboat,128,64,9.211,25.044989087999056,219.2,0.7504,329.2,0.1698
+vllm,lmcache_dram,128,64,17.009,47.70681015899936,146.07,0.5215,493.9,0.1116

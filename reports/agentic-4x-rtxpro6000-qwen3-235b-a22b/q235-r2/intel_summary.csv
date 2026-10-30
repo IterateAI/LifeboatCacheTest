@@ -1,0 +1,3 @@
+engine,config,dram_gb,users,rounds,max_out,context,requests,ok,errors,wall_s,ttft_mean_s,ttft_p50_s,ttft_p99_s,out_tok_s_sustained,output_tokens,prompt_tokens,prefix_hit_rate,ttft_round1_s,ttft_round10_s,round1_to_last_pct,gpu_joules,cpu_joules,tok_per_joule
+vllm,lifeboat,128,64,10,256,40960,640,634,6,329.2,9.211,6.873822355999437,25.044989087999056,219.2,72150,4892852,0.7504,2.126,9.044,325.3,424999.5,,0.1698
+vllm,lmcache_dram,128,64,10,256,40960,640,634,6,493.9,17.009,10.452799130999665,47.70681015899936,146.07,72150,4892852,0.5215,2.022,21.24,950.3,646664.5,,0.1116

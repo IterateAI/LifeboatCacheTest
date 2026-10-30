@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lifeboat Cache verification — one line:
+# LifeboatCache verification — one line:
 #   curl -fsSL https://raw.githubusercontent.com/IterateAI/LifeboatCacheTest/main/run.sh | bash
 # Options go after "bash -s --", e.g. ... | bash -s -- --yes --full
 # Fetches lbc_verify.py from the same place and runs it with your engine's Python.

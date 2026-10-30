@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Lifeboat Cache verification: runs your model on your vLLM or SGLang, with and without Lifeboat
-Cache, and writes the results as CSV.
+"""LifeboatCache verification: runs your model on your vLLM or SGLang, with and without
+LifeboatCache, and writes the results as CSV.
 
 What it measures, sized to this machine's GPUs, RAM and disk:
   capacity    GPU KV pool (tokens) and how many users of the test context fit on the GPU at once
   throughput  total output tokens/s and time to first token at 1..64 concurrent users
   returning   users who come back with a new question after their KV left the GPU — the case a
               KV cache tier exists for: recompute (no offload) vs the engine's own offload vs
-              Lifeboat Cache (and LMCache / LMCache + Lifeboat Cache on vLLM when available)
+              LifeboatCache (and LMCache / LMCache + LifeboatCache on vLLM when available)
   overflow    more users than the GPU holds (about 2x its KV pool), so eviction is real
   restart     a returning user after the server restarts
 
@@ -44,7 +44,7 @@ QUESTIONS = ["\n\nQuestion: In one paragraph, what is the main purpose of the co
              "\n\nQuestion: List the most important classes or functions defined above.\nAnswer:",
              "\n\nQuestion: What would you refactor first in the code above, and why?\nAnswer:"]
 LABELS = {"vllm": "vLLM, no offload", "vllm_offload": "vLLM native offload (CPU + disk)",
-          "lifeboat": "Lifeboat Cache", "lmcache": "LMCache", "lmcache_lifeboat": "LMCache + Lifeboat Cache",
+          "lifeboat": "LifeboatCache", "lmcache": "LMCache", "lmcache_lifeboat": "LMCache + LifeboatCache",
           "sglang": "SGLang, no offload", "sglang_hicache": "SGLang HiCache (file backend)"}
 
 
@@ -854,7 +854,7 @@ def run(args):
     engine_ver = pkg_version(ctx.py, ctx.kind)
     log(f"engine: {ctx.kind} {engine_ver} ({ctx.py}); model: {ctx.model}")
     if ctx.kind == "sglang" and "--disable-radix-cache" in ctx.base_args:
-        log("note: this launch disables the radix cache; SGLang's HiCache (and so Lifeboat Cache) needs it, "
+        log("note: this launch disables the radix cache; SGLang's HiCache (and so LifeboatCache) needs it, "
             "so the cache configurations run with it on")
         ctx.base_args = [a for a in ctx.base_args if a != "--disable-radix-cache"]
 
@@ -1157,7 +1157,7 @@ def write_csv(res, out):
 def print_summary(res):
     plan = res.get("plan") or {}
     print("\n" + "=" * 78)
-    print(f"Lifeboat Cache verification — {res['engine']} {res['engine_version']}, {res['model']}")
+    print(f"LifeboatCache verification — {res['engine']} {res['engine_version']}, {res['model']}")
     print(f"{len(res['system']['gpus'])}x {res['system']['gpus'][0]['name']}; "
           f"{plan.get('context', 0) // K}K-token users, {plan.get('users_fit')} returning")
     print("-" * 78)
