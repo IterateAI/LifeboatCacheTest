@@ -36,6 +36,27 @@ Each cell: mean time to first token / output tokens per second.
 Share of prompt tokens served from cache at 64 agents: vLLM alone 12%, LMCache 53%,
 LifeboatCache 75%. p99 time to first token: 71 s, 52 s, 26 s.
 
+### Energy, latency over the session, capacity within a latency target (128 GB)
+
+| | vLLM alone | vLLM + LMCache | vLLM + LifeboatCache |
+|---|---|---|---|
+| Output tokens per joule (GPU), 64 / 128 agents | 0.071 / 0.053 | 0.113 / 0.065 | **0.171 / 0.159** |
+| Mean TTFT, round 1 → round 10, 64 agents | 2.1 → 29.5 s | 2.0 → 20.2 s | **2.1 → 8.9 s** |
+| Mean TTFT, round 1 → round 10, 128 agents | 10.7 → 182.9 s | 10.8 → 154.2 s | **10.8 → 45.4 s** |
+| Most agents with p99 TTFT within 30 s (of 32 / 64 / 128 tested) | 32 | 32 | **64** |
+| Wall-clock for the same 640 / 1,280 requests | 12.9 / 34.8 min | 8.1 / 28.3 min | **5.5 / 11.8 min** |
+
+GPU energy from `nvidia-smi` (CPU package energy was not readable on this cloud server).
+LifeboatCache at 128 agents with the 2 TB NVMe tier.
+
+### Comparing with Intel's report
+
+Same model, GPUs, traces and method, but not the same settings: this run used 10 rounds per
+agent and a 256-token output cap (Intel: 25 rounds, 512), vLLM 0.32 / LMCache 0.5.6 (Intel:
+0.22 / 0.4.6), 1 TB of RAM (Intel: 2 TB) and stopped at 128 agents (Intel: up to 512). Don't set
+these numbers beside Intel's. A run at Intel's settings, with LMCache's DRAM + NVMe
+configuration, is planned.
+
 ### Host DRAM sweep (64 agents)
 
 | DRAM | vLLM + LMCache | vLLM + LifeboatCache |
