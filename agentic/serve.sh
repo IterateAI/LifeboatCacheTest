@@ -102,10 +102,14 @@ umask 022
 export HF_HOME=$PWD/hf FLASHINFER_DISABLE_VERSION_CHECK=1 VLLM_SERVER_DEV_MODE=1
 export LIFEBOAT_CACHE_HOME=$H LIFEBOAT_CACHE_CONFIG=$H/lifeboat.yaml
 KVT=()
+# KV_LOAD_FAILURE_POLICY=recompute: a KV load that fails (LMCache "Some keys not found during
+# retrieve") recomputes the request instead of failing it; vLLM's default "fail" took the engine
+# down at 256 agents with LMCache DRAM + NVMe (2026-10-30)
+KVLF=""; [ -n "${KV_LOAD_FAILURE_POLICY:-}" ] && KVLF=",\"kv_load_failure_policy\":\"$KV_LOAD_FAILURE_POLICY\""
 case $MODE in
   vllm)       export LIFEBOAT_CACHE=0 ;;
   lmcache)    export LIFEBOAT_CACHE=0
-              KVT=(--kv-transfer-config "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.host\":\"tcp://localhost\",\"lmcache.mp.port\":6555,\"lmcache.mp.autostart\":true,\"lmcache.mp.autostart.server_args\":\"--l1-size-gb $CPU_GB --eviction-policy LRU --chunk-size $CHUNK\",\"lmcache.mp.autostart.wait_timeout\":180}}") ;;
+              KVT=(--kv-transfer-config "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.host\":\"tcp://localhost\",\"lmcache.mp.port\":6555,\"lmcache.mp.autostart\":true,\"lmcache.mp.autostart.server_args\":\"--l1-size-gb $CPU_GB --eviction-policy LRU --chunk-size $CHUNK\",\"lmcache.mp.autostart.wait_timeout\":180}${KVLF}}") ;;
   lmcache_lb|lb_native) export LIFEBOAT_CACHE=1 ;;
   # baselines: each engine's own disk tier, no LifeboatCache (they have no capacity limit;
   # matrix.py prunes the oldest files between cells to the same 250 GB Lifeboat runs with)
@@ -123,12 +127,18 @@ print(json.dumps({"kv_connector": "OffloadingConnector", "kv_role": "kv_both", "
               mkdir -p "$KV/lmcache"
               KVT=(--kv-transfer-config "$(python3 -c '
 import json, shlex, sys
-l2 = json.dumps({"type": "fs", "base_path": sys.argv[1] + "/lmcache"}, separators=(",", ":"))
+l2 = {"type": "fs", "base_path": sys.argv[1] + "/lmcache"}
+if sys.argv[4] == "1":
+    l2["use_odirect"] = True  # O_DIRECT for the NVMe layer
+l2 = json.dumps(l2, separators=(",", ":"))
 args = " ".join(shlex.quote(a) for a in ["--l1-size-gb", sys.argv[3], "--eviction-policy", "LRU", "--chunk-size", sys.argv[2], "--l2-adapter", l2])
-print(json.dumps({"kv_connector": "LMCacheMPConnector", "kv_role": "kv_both", "kv_connector_extra_config": {
+kt = {"kv_connector": "LMCacheMPConnector", "kv_role": "kv_both", "kv_connector_extra_config": {
     "lmcache.mp.host": "tcp://localhost", "lmcache.mp.port": 6555, "lmcache.mp.autostart": True,
-    "lmcache.mp.autostart.server_args": args, "lmcache.mp.autostart.wait_timeout": 180}}))
-' "$KV" "$CHUNK" "$CPU_GB")") ;;
+    "lmcache.mp.autostart.server_args": args, "lmcache.mp.autostart.wait_timeout": 180}}
+if sys.argv[5]:
+    kt["kv_load_failure_policy"] = sys.argv[5]
+print(json.dumps(kt))
+' "$KV" "$CHUNK" "$CPU_GB" "${LMCACHE_ODIRECT:-0}" "${KV_LOAD_FAILURE_POLICY:-}")") ;;
   *) echo "unknown mode $MODE"; exit 2 ;;
 esac
 

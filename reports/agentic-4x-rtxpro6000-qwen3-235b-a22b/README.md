@@ -1,7 +1,7 @@
 # Agentic workload on 4 × RTX PRO 6000: vLLM alone vs LMCache vs LifeboatCache
 
-Measured 2026-10-30. The agentic workload of Intel's published KV-cache offload study (real agent
-sessions replayed turn by turn), on Intel's four-GPU model, with and without KV-cache offload.
+Measured 2026-10-30 and 2026-10-31. Real agent sessions (`sammshen/lmcache-agentic-traces`)
+replayed turn by turn on a four-GPU model, with and without KV-cache offload.
 Raw per-request and per-cell results are in the subdirectories; the customer deck is
 `LifeboatCache_vLLM_Agentic_4xRTXPRO6000.pptx`. Tools: [`../../agentic/`](../../agentic/).
 
@@ -49,13 +49,19 @@ LifeboatCache 75%. p99 time to first token: 71 s, 52 s, 26 s.
 GPU energy from `nvidia-smi` (CPU package energy was not readable on this cloud server).
 LifeboatCache at 128 agents with the 2 TB NVMe tier.
 
-### Comparing with Intel's report
+### Long agent sessions: 256 and 512 agents (2026-10-31)
 
-Same model, GPUs, traces and method, but not the same settings: this run used 10 rounds per
-agent and a 256-token output cap (Intel: 25 rounds, 512), vLLM 0.32 / LMCache 0.5.6 (Intel:
-0.22 / 0.4.6), 1 TB of RAM (Intel: 2 TB) and stopped at 128 agents (Intel: up to 512). Don't set
-these numbers beside Intel's. A run at Intel's settings, with LMCache's DRAM + NVMe
-configuration, is planned.
+25 rounds per agent, up to 512 output tokens per round, 40,192-token context; LifeboatCache with
+256 GB of DRAM and a 3 TB NVMe tier (`LB_CAPACITY_GB=3000`).
+
+| Agents | DRAM | Mean TTFT | P99 TTFT | Output tok/s | Cached | Completed |
+|---|---|---|---|---|---|---|
+| 256 | 256 GB | 158 s | 242 s | **222.6** | 89% | 6,391 / 6,400 |
+| 256 | 64 GB | 178 s | 254 s | 199.0 | 85% | 6,392 / 6,400 |
+| 512 | 256 GB | 598 s | 1,365 s | **122.4** | 90% | 12,789 / 12,800 |
+
+More DRAM: +12% throughput from 64 to 256 GB at 256 agents. Requests that did not complete
+exceeded the context. Data: `long-sessions/cells/`.
 
 ### Host DRAM sweep (64 agents)
 
@@ -98,9 +104,10 @@ pinned and ran at full speed.
 
 | Path | Contents |
 |---|---|
-| `q235/` | the grid: `intel_summary.csv` (one row per cell), `cells/*-summary.json`, `cells/*-requests.csv` (every request: TTFT, end-to-end time, prompt / cached / output tokens) |
+| `q235/` | the grid: `sweep_summary.csv` (one row per cell), `cells/*-summary.json`, `cells/*-requests.csv` (every request: TTFT, end-to-end time, prompt / cached / output tokens) |
 | `q235-r2/` | second run of the 64-agent, 128 GB cells |
 | `q235-cap2000/` | LifeboatCache, 128 agents, 128 GB, 2 TB NVMe tier |
+| `long-sessions/` | LifeboatCache, 25-round sessions at 256 and 512 agents |
 
 Less DRAM, less performance; more DRAM, better performance — achieved just with LifeboatCache on
 top of vLLM, SGLang or Lifeboat.

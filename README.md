@@ -70,8 +70,8 @@ Nothing is sent anywhere: no telemetry, and the results stay on your machine.
 
 ## Agentic benchmark and published results
 
-Besides the one-line verifier, [`agentic/`](agentic/) holds the tools for the agentic workload
-of Intel's published KV-cache offload study — real agent sessions replayed turn by turn across
+Besides the one-line verifier, [`agentic/`](agentic/) holds the tools for an agentic workload
+of real agent sessions replayed turn by turn across
 configurations, host-DRAM sizes and numbers of agents — and [`reports/`](reports/) the results
 measured with them (per-request CSVs, per-cell summaries and the slides):
 
@@ -81,7 +81,8 @@ measured with them (per-request CSVs, per-cell summaries and the slides):
 | [1 × RTX PRO 6000](reports/agentic-1x-rtxpro6000-qwen3-30b-a3b/) | 1 × RTX PRO 6000, Qwen3-30B-A3B, 32 GB DRAM | 25.4 s / 180 → 21.8 s / 211 → **13.0 s / 323** |
 
 At 128 agents on the four-GPU server LifeboatCache delivered 3.0x the output throughput of vLLM
-alone (208 vs 70 tok/s). vLLM 0.32, LMCache 0.5.6, LifeboatCache 0.1.23.
+alone (208 vs 70 tok/s). With 25-round sessions it served 256 agents at 222.6 tok/s and 512 agents
+at 122.4 tok/s, about 90% of every prompt from cache. vLLM 0.32, LMCache 0.5.6, LifeboatCache 0.1.23.
 
 ## Requirements
 

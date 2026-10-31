@@ -1,9 +1,8 @@
-"""Closed-loop agentic replay, the workload of the Intel / HPE / Metrum AI "KV Cache Offload"
-report: N users at once, each replaying agent sessions turn by turn (a turn's prompt is the
-previous one plus what the agent appended), ROUNDS requests per user, output capped at MAX_OUT
+"""Closed-loop agentic replay of the public agentic traces: N users at once, each replaying agent
+sessions turn by turn (a turn's prompt is the previous one plus what the agent appended), ROUNDS requests per user, output capped at MAX_OUT
 tokens per request. Against any OpenAI-compatible server (vLLM, SGLang, the Lifeboat product).
 
-Reports what the report reports: mean / P99 time to first token, sustained output tokens/s
+Reports mean / P99 time to first token, sustained output tokens/s
 (output tokens over wall-clock), wall-clock for the run, round-1 vs last-round TTFT, prefix-cache
 hit rate (cached prompt tokens from the server's usage), and energy per token (GPU power from
 nvidia-smi, CPU package energy from RAPL where readable).

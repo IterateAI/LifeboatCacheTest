@@ -1,4 +1,4 @@
-"""Prepare the agentic traces used by the Intel / HPE / Metrum AI "KV Cache Offload" report
+"""Prepare the public agentic traces (sammshen/lmcache-agentic-traces) for the KV-cache offload benchmark
 (sammshen/lmcache-agentic-traces: SWE-bench Verified, GAIA, WildClawBench) for agentic_replay.py.
 
 Each dataset row is one LLM call with the session's full cumulative message list; row N's input

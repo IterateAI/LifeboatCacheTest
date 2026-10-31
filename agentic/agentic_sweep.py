@@ -1,10 +1,10 @@
-"""The Intel / HPE / Metrum AI KV-cache-offload grid, plus LifeboatCache, plus a DRAM sweep.
+"""The agentic KV-cache-offload grid (vLLM alone, LMCache, LifeboatCache) with a DRAM sweep.
 
 For every cell (engine, configuration, DRAM GB, users) the server starts fresh with empty cache
 tiers (as in the report: caches cleared and the server restarted before each concurrency
-change), agentic_replay.py runs, and a row lands in intel_summary.csv. Afterwards:
-intel_sla.csv (most users within a P99-TTFT target of 30 / 300 / 900 s per configuration) and
-intel_dram.csv (the same user count across DRAM sizes: how throughput and TTFT scale with DRAM).
+change), agentic_replay.py runs, and a row lands in sweep_summary.csv. Afterwards:
+sweep_sla.csv (most users within a P99-TTFT target of 30 / 300 / 900 s per configuration) and
+sweep_dram.csv (the same user count across DRAM sizes: how throughput and TTFT scale with DRAM).
 
 Configurations (names follow the report; DRAM = host-RAM KV tier per GPU, NVMe = local disk):
   vllm     gpu_only            vLLM prefix cache only
@@ -15,7 +15,7 @@ Configurations (names follow the report; DRAM = host-RAM KV tier per GPU, NVMe =
            lifeboat            SGLang HiCache, DRAM + LifeboatCache on NVMe
   product  radix / lifeboat    the same two inside the Lifeboat product image (docker)
 
-usage: intel_sweep.py --model-dir DIR --sessions sessions.jsonl.gz --out results/
+usage: agentic_sweep.py --model-dir DIR --sessions sessions.jsonl.gz --out results/
           [--engines vllm,sglang,product] [--configs gpu_only,lmcache_dram,...] [--dram 16,32,64]
           [--users 32,128,256,512] [--rounds 25] [--max-out 512] [--context 40192] [--tp 1]
           [--kv-dtype auto] [--sglang-python PATH] [--image iterateai/lifeboat:2.2.61-amd64]
@@ -102,7 +102,7 @@ class Server:
             wait_ready(self.port, lambda: self.proc.poll() is None)
             return
         # the Lifeboat product image (SGLang inside)
-        name = "lb-intel"
+        name = "lb-agentic"
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
         envs = ["-e", "HOME=/opt/lifeboat/.lifeboat", "-e", "FLASHINFER_DISABLE_VERSION_CHECK=1"]
         mounts = ["-v", f"{a.models_root}:/models:ro"]
@@ -134,7 +134,7 @@ class Server:
             except subprocess.TimeoutExpired:
                 os.killpg(self.proc.pid, 9)
         elif self.engine == "product":
-            subprocess.run(["docker", "rm", "-f", "lb-intel"], capture_output=True)
+            subprocess.run(["docker", "rm", "-f", "lb-agentic"], capture_output=True)
 
 
 def run_cell(a, engine: str, config: str, dram: int, users: int) -> dict | None:
@@ -189,7 +189,7 @@ def write_tables(a, rows: list[dict]) -> None:
     cols = ["engine", "config", "dram_gb", "users"]
     for r in rows:  # every column any cell has (server_crashed only where it happened)
         cols += [k for k in r if k not in cols and k != "label"]
-    with open(os.path.join(a.out, "intel_summary.csv"), "w", newline="") as fh:
+    with open(os.path.join(a.out, "sweep_summary.csv"), "w", newline="") as fh:
         w = csv.DictWriter(fh, cols, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
@@ -201,7 +201,7 @@ def write_tables(a, rows: list[dict]) -> None:
                   and r.get("ttft_p99_s") is not None and r["ttft_p99_s"] <= target]
             cell[f"max_users_p99_le_{target}s"] = max(ok) if ok else 0
         sla.append(cell)
-    with open(os.path.join(a.out, "intel_sla.csv"), "w", newline="") as fh:
+    with open(os.path.join(a.out, "sweep_sla.csv"), "w", newline="") as fh:
         w = csv.DictWriter(fh, list(sla[0]))
         w.writeheader()
         w.writerows(sla)
@@ -209,7 +209,7 @@ def write_tables(a, rows: list[dict]) -> None:
             "prefix_hit_rate", "wall_s", "tok_per_joule"]
     dram = sorted((r for r in rows if r["config"] not in NO_DRAM),
                   key=lambda r: (r["engine"], r["config"], r["users"], r["dram_gb"]))
-    with open(os.path.join(a.out, "intel_dram.csv"), "w", newline="") as fh:
+    with open(os.path.join(a.out, "sweep_dram.csv"), "w", newline="") as fh:
         w = csv.DictWriter(fh, keep, extrasaction="ignore")
         w.writeheader()
         w.writerows(dram)
