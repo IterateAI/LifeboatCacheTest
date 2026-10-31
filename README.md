@@ -79,7 +79,7 @@ measured with them (per-request CSVs, per-cell summaries and the slides):
 |---|---|---|
 | [4 × RTX PRO 6000](reports/agentic-4x-rtxpro6000-qwen3-235b-a22b/) | 4 × RTX PRO 6000, Qwen3-235B-A22B-FP8, 128 GB DRAM | 26.7 s / 94 → 17.1 s / 148 → **9.1 s / 219** |
 | [1 × RTX PRO 6000](reports/agentic-1x-rtxpro6000-qwen3-30b-a3b/) | 1 × RTX PRO 6000, Qwen3-30B-A3B, 32 GB DRAM | 25.4 s / 180 → 21.8 s / 211 → **13.0 s / 323** |
-| [gpt-oss-20b, 1 GPU](reports/agentic-1x-rtxpro6000-gpt-oss-20b/) | 1 × RTX PRO 6000, gpt-oss-20b, 24 GB DRAM (128 agents, 25 rounds) | 0.49 s / 1,117 → 0.64 s / 1,144 → **0.44 s / 1,425** |
+| [gpt-oss-20b, 1 GPU](reports/agentic-1x-rtxpro6000-gpt-oss-20b/) | 1 × RTX PRO 6000, gpt-oss-20b, 24 GB DRAM (128 agents, 25 rounds; 256 agents in the report) | 0.49 s / 1,117 → 0.64 s / 1,144 → **0.44 s / 1,425** |
 
 At 128 agents on the four-GPU server LifeboatCache delivered 3.0x the output throughput of vLLM
 alone (208 vs 70 tok/s). With 25-round sessions it served 256 agents at 222.6 tok/s and 512 agents
