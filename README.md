@@ -88,6 +88,22 @@ at 122.4 tok/s, about 90% of every prompt from cache. vLLM 0.32, LMCache 0.5.6, 
 On one AMD Instinct MI210 it gave vLLM 3.2x (128 agents) and 3.6x (256) the output throughput of vLLM
 alone, and SGLang and Lifeboat 19–20% more at 128 agents.
 
+The full set in one deck: [`reports/LifeboatCache_Performance_Customer.pptx`](reports/LifeboatCache_Performance_Customer.pptx)
+(NVIDIA GPUs in Intel Xeon servers, AMD Instinct MI210, Apple M4 Max).
+
+**Against the published Intel / HPE study.** Metrum AI's public study [Streamlined Agentic Inference with KV Cache
+Offload](https://www.metrum.ai/whitepaper/hpe-kv-cache-offload) (September 2026; HPE ProLiant DL380a Gen12, Intel Xeon 6)
+ran the same model on 4 × RTX PRO 6000 with 25-round sessions and 512 output tokens, using vLLM 0.22 and LMCache 0.4.6.
+At 256 agents its best offload configuration (LMCache, DRAM + NVMe) gave 309.4 s mean TTFT and 124.0 output tok/s
+(GPU only: 839.5 s, 47.0); vLLM 0.32 + LifeboatCache 0.1.23 at the same settings gave 158.0 s and 222.6 tok/s, and at
+512 agents 598.2 s / 122.4 tok/s against the study's 688.9 s / 111.2. Not a head-to-head run: the software versions
+and host differ (the study's host had 2 TB of RAM, ours 1 TB), and part of the gap can come from the newer vLLM.
+
+**Apple M4 Max** (Qwen3-0.6B, the verifier above, LifeboatCache 0.1.14 / 0.1.15): a returning user's time to first
+token went from 7.97 s to 1.48 s on SGLang's MLX backend and from 49.8 s to 1.11 s on vLLM's CPU backend. Peak
+throughput was unchanged on vLLM and 19% lower on SGLang MLX with the cache on. A functional check, not a capacity
+benchmark.
+
 ## Requirements
 
 - Linux with NVIDIA GPUs and `nvidia-smi`, or macOS on Apple silicon; Python 3 and `curl`.
