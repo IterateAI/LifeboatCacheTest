@@ -1,0 +1,28 @@
+{
+  "server": "POOL:7470",
+  "transport": "nixl",
+  "phases": [
+    {
+      "op": "write",
+      "blocks": 1024,
+      "block_bytes": 2097152,
+      "threads": 16,
+      "seconds": 2.0512,
+      "gb_per_s": 1.047,
+      "p50_ms": 11.752,
+      "p99_ms": 237.159,
+      "mismatched": 0
+    },
+    {
+      "op": "read",
+      "blocks": 1024,
+      "block_bytes": 2097152,
+      "threads": 16,
+      "seconds": 3.3947,
+      "gb_per_s": 0.633,
+      "p50_ms": 52.702,
+      "p99_ms": 55.872,
+      "mismatched": 0
+    }
+  ]
+}

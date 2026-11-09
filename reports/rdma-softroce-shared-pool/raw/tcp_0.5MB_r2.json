@@ -1,0 +1,28 @@
+{
+  "server": "POOL:7470",
+  "transport": "tcp",
+  "phases": [
+    {
+      "op": "write",
+      "blocks": 4096,
+      "block_bytes": 524288,
+      "threads": 4,
+      "seconds": 0.1745,
+      "gb_per_s": 12.303,
+      "p50_ms": 0.158,
+      "p99_ms": 0.316,
+      "mismatched": 0
+    },
+    {
+      "op": "read",
+      "blocks": 4096,
+      "block_bytes": 524288,
+      "threads": 4,
+      "seconds": 0.3179,
+      "gb_per_s": 6.755,
+      "p50_ms": 0.295,
+      "p99_ms": 0.538,
+      "mismatched": 0
+    }
+  ]
+}

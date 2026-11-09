@@ -99,6 +99,12 @@ At 256 agents its best offload configuration (LMCache, DRAM + NVMe) gave 309.4 s
 512 agents 598.2 s / 122.4 tok/s against the study's 688.9 s / 111.2. Not a head-to-head run: the software versions
 and host differ (the study's host had 2 TB of RAM, ours 1 TB), and part of the gap can come from the newer vLLM.
 
+**Shared KV pool over RDMA** ([report](reports/rdma-softroce-shared-pool/), LifeboatCache 0.1.29): the memory pool
+that lets several servers share one KV cache, run over software RDMA (Soft-RoCE) on one host with UCX limited to RDMA
+verbs. Every block came back correct; the pool reached about 2/3 of that link's raw write rate and half its read rate
+(1.03 vs 1.53 GB/s, 0.66 vs 1.22 GB/s, 2 MB blocks). Soft-RoCE runs on the CPU: this verifies the RDMA path, not the
+speed of RDMA hardware, which has not been measured yet.
+
 **Apple M4 Max** (Qwen3-0.6B, the verifier above, LifeboatCache 0.1.14 / 0.1.15): a returning user's time to first
 token went from 7.97 s to 1.48 s on SGLang's MLX backend and from 49.8 s to 1.11 s on vLLM's CPU backend. Peak
 throughput was unchanged on vLLM and 19% lower on SGLang MLX with the cache on. A functional check, not a capacity
